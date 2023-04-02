@@ -1,0 +1,45 @@
+﻿TemporalAsOf -> Belirli bir zaman için değişikliğe uğrayan tüm öğeleri döndürür.
+TemporalAll -> Mevcudiyette bulunan, güncellenmiş yahut silinmiş olan tüm verilerin geçmiş sürümlerini ve geçerli durumlarını döndürür.
+TemporalFromTo -> Belirli bir zaman aralığı içerisindeki verileri döndürür. Başlangıç ve bitiş zamanı dahil değildir!
+TemporalBetween -> Belirli bir zaman aralığı içerisindeki verileri döndürür. Başlangıç dahil değilken ve bitiş zamanı dahildir!
+TemporalContainedIn -> Belirli bir zaman aralığı içerisindeki verileri döndürür. Başlangıç ve bitiş zamanı dahildir!
+
+
+Silinmiş Bir Veriyi Temporal Table’dan Geri Getirme
+Silinmiş bir veriyi temporal table’dan bulup geri getirmek istiyorsak öncelikle yapılması gereken ilgili verinin silindiği tarihi bulmamız gerektiğidir. 
+Ardından TemporalAsOf fonksiyonu aracılığıyla silinen verinin geçmiş değeri elde edilebilir ve fiziksel tabloya taşınabilir. Tabi böyle bir durumda, 
+ilgili verinin id sütununa kayıt işleyebilmek için fiziksel tabloya taşıma işleminden önce SET IDENTITY_INSERT komutu çalıştırılmalıdır.
+
+Misal olarak, aşağıdaki örnekte önceden sildiğimiz ‘2’ id’sine sahip olan veri temporal table’dan bulunup geri fiziksel tabloya yüklenmektedir.
+
+///******////
+
+TemporalExampleDb context = new();
+ 
+DateTime dateOfDelete = await context.Posts.TemporalAll()
+    .Where(p => p.Id == 2)
+    .OrderBy(p => EF.Property<DateTime>(p, "PeriodEnd"))
+    // En sonuncu işlem yapılan tarihi alıyoruz.
+    // Çünkü bu veri silindiyse muhtemelen en sonuncu
+    // işlem yapılan tarihte silinmiştir.
+    .Select(data => EF.Property<DateTime>(data, "PeriodEnd"))
+    .LastAsync();
+ 
+//Silinmeden önceki en son kayıt elde ediliyor.
+Post deletedPost = await context.Posts.TemporalAsOf(dateOfDelete.AddMilliseconds(-1))
+    .SingleAsync(data => data.Id == 2);
+ 
+//Fiziksel tabloya ekleniyor.
+await context.AddAsync(deletedPost);
+ 
+//Aşağıdaki ExecuteSqlInterpolatedAsync fonksiyonu ile SET IDENTITY_INSERT komutunu tetikleyebilmek için connection'ın açılması gerekmektedir.
+await context.Database.OpenConnectionAsync();
+ 
+//SET IDENTITY_INSERT komutu çalıştırılıyor
+await context.Database.ExecuteSqlInterpolatedAsync($"SET IDENTITY_INSERT dbo.Posts ON");
+//Sorgu execute ediliyor.
+await context.SaveChangesAsync();
+//SET IDENTITY_INSERT komutu kapatılıyor.
+await context.Database.ExecuteSqlInterpolatedAsync($"SET IDENTITY_INSERT dbo.Posts OFF");
+
+//////*********///////
